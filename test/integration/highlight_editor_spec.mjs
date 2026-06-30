@@ -2848,4 +2848,154 @@ describe("Highlight Editor", () => {
       });
     });
   });
+
+  describe("Show all disabled status must be persistence", () => {
+    let pages;
+
+    beforeEach(async () => {
+      pages = await loadAndWait("tracemonkey.pdf", ".annotationEditorLayer");
+    });
+
+    afterEach(async () => {
+      await closePages(pages);
+    });
+
+    it("must preserve the status when closing and opening any editor", async () => {
+      await Promise.all(
+        pages.map(async ([browserName, page]) => {
+          await switchToHighlight(page);
+          await page.waitForSelector(".annotationEditorLayer.highlightEditing");
+
+          await highlightSpan(page, 1, "Abstract");
+          const firstEditorSelector = getEditorSelector(0);
+          await page.waitForSelector(firstEditorSelector);
+
+          const showAllButton = "#editorHighlightShowAll";
+          await page.click(showAllButton);
+          await page.waitForSelector(`${firstEditorSelector}.hidden`);
+
+          const modeChangedHandle1 = await waitForAnnotationModeChanged(page);
+          await page.click("#editorHighlightButton");
+          await awaitPromise(modeChangedHandle1);
+
+          const modeChangedHandle2 = await waitForAnnotationModeChanged(page);
+          await page.click("#editorInkButton");
+          await awaitPromise(modeChangedHandle2);
+          await page.waitForSelector(".annotationEditorLayer.inkEditing");
+
+          const modeChangedHandle3 = await waitForAnnotationModeChanged(page);
+          await page.click("#editorHighlightButton");
+          await awaitPromise(modeChangedHandle3);
+          await page.waitForSelector(".annotationEditorLayer.highlightEditing");
+
+          const isShowAllDisabled = await page.evaluate(() => {
+            const btn = document.querySelector("#editorHighlightShowAll");
+            return btn.getAttribute("aria-pressed") === "false";
+          });
+
+          expect(isShowAllDisabled)
+            .withContext(
+              `In ${browserName}: Show all button should still be disabled`
+            )
+            .toBe(true);
+
+          const visibilityState = await page.evaluate(selector => {
+            const highlight = document.querySelector(selector);
+            return {
+              hasHiddenClass: highlight
+                ? highlight.classList.contains("hidden")
+                : false,
+            };
+          }, firstEditorSelector);
+
+          expect(visibilityState.hasHiddenClass)
+            .withContext(
+              `In ${browserName}: Highlight should have hidden CSS class`
+            )
+            .toBe(true);
+        })
+      );
+    });
+
+    it("must preserve the status when highlighting from edit toolbar and re-opening the editor", async () => {
+      await Promise.all(
+        pages.map(async ([browserName, page]) => {
+          await switchToHighlight(page);
+          await page.waitForSelector(".annotationEditorLayer.highlightEditing");
+
+          await highlightSpan(page, 1, "Abstract");
+          const firstEditorSelector = getEditorSelector(0);
+          await page.waitForSelector(firstEditorSelector);
+
+          const showAllButton = "#editorHighlightShowAll";
+          await page.click(showAllButton);
+          await page.waitForSelector(`${firstEditorSelector}.hidden`);
+
+          const modeChangedHandle = await waitForAnnotationModeChanged(page);
+          await page.click("#editorHighlightButton");
+          await awaitPromise(modeChangedHandle);
+
+          const textSpan = await page.$(
+            `.page[data-page-number = "1"] .textLayer span`
+          );
+          const spanRect = await page.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            return {
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+            };
+          }, textSpan);
+
+          await page.mouse.click(spanRect.x, spanRect.y);
+          await page.mouse.click(spanRect.x, spanRect.y);
+
+          await page.waitForSelector(".editToolbar", { timeout: 5000 });
+          const highlightFromToolbar = await page.$(
+            ".floatingToolbar button[data-action='highlight']"
+          );
+          if (highlightFromToolbar) {
+            await highlightFromToolbar.click();
+            const secondEditorSelector = getEditorSelector(1);
+            await page.waitForSelector(secondEditorSelector);
+          }
+
+          const modeChangedHandle2 = await waitForAnnotationModeChanged(page);
+          await page.click("#editorHighlightButton");
+          await awaitPromise(modeChangedHandle2);
+
+          const modeChangedHandle3 = await waitForAnnotationModeChanged(page);
+          await page.click("#editorHighlightButton");
+          await awaitPromise(modeChangedHandle3);
+
+          const isShowAllDisabled = await page.evaluate(() => {
+            const btn = document.querySelector("#editorHighlightShowAll");
+            return btn.getAttribute("aria-pressed") === "false";
+          });
+
+          expect(isShowAllDisabled)
+            .withContext(
+              `In ${browserName}: Show all button should still be disabled`
+            )
+            .toBe(true);
+
+          await page.waitForSelector(`${firstEditorSelector}.hidden`);
+
+          const visibilityState = await page.evaluate(selector => {
+            const highlight = document.querySelector(selector);
+            return {
+              hasHiddenClass: highlight
+                ? highlight.classList.contains("hidden")
+                : false,
+            };
+          }, firstEditorSelector);
+
+          expect(visibilityState.hasHiddenClass)
+            .withContext(
+              `In ${browserName}: Highlight should have hidden CSS class after floating toolbar usage`
+            )
+            .toBe(true);
+        })
+      );
+    });
+  });
 });
